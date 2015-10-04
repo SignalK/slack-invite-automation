@@ -12,6 +12,9 @@ html
 
     script(src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.5/leaflet.js")
     script(src="https://cdnjs.cloudflare.com/ajax/libs/leaflet-providers/1.1.5/leaflet-providers.min.js")
+    script(src="https://cdnjs.cloudflare.com/ajax/libs/d3/3.5.6/d3.min.js")
+    script(src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.0.0-alpha1/jquery.min.js")
+    script(src="http://demo.signalk.org/signalk/stream/v1/primus.js")
   body
     #map
     #container
@@ -23,16 +26,218 @@ html
 
     script.
       var map = L.map('map', {
-        center: [50.6435934,0.7999042],
-        zoom: 10
+        // center: [50.6435934,0.7999042],
+        // zoom: 10
+        center: [37.8, -96.9],
+        zoom: 10,
+        zoomControl: false
       });
 
-      var basemap = L.tileLayer('http://{s}.tile.openstreetmap.se/hydda/base/{z}/{x}/{y}.png', {
-        attribution: 'Tiles courtesy of <a href="http://openstreetmap.se/" target="_blank">OpenStreetMap Sweden</a> &mdash; Map data &copy; <a href="http://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+      map.setView([60.1, 24.8], 10);
+      new L.Control.Zoom({ position: 'topright' }).addTo(map);
+
+      L.tileLayer('http://{s}.tile.osm.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; <a href="http://osm.org/copyright">OpenStreetMap</a> contributors'
+      }).addTo(map);
+
+      var svg = d3.select(map.getPanes().overlayPane).append("svg");
+      var g = svg.append("g").attr("class", "leaflet-zoom-hide");
+      var transform = d3.geo.transform({point: projectPoint});
+      var path = d3.geo.path().projection(transform);
+
+      map.on("viewreset", reset);
+
+      function updateMarkers(multiPointForBounds, targetsArray) {
+        var bounds = path.bounds(multiPointForBounds),
+          topLeft = bounds[0],
+          bottomRight = bounds[1]
+        ;
+
+        svg.attr("width", bottomRight[0] - topLeft[0] + 20)
+          .attr("height", bottomRight[1] - topLeft[1] + 20)
+          .style("left", (topLeft[0] - 10) + "px")
+          .style("top", (topLeft[1] - 10) + "px")
+        ;
+        
+        g.attr("transform", "translate(" + (-topLeft[0] + 10) + "," + (-topLeft[1] + 10) + ")");
+        
+        var vesselColor = d3.scale.linear()
+          .domain([0.9 * selfSpeed, selfSpeed, 1.1 * selfSpeed])
+          .range(['blue', 'green', 'red'])
+        ;
+        
+        var boatData = g.selectAll('.vessel').data(targetsArray, function (d) {
+          return d.id
+        });
+
+        boatData.enter().append("polygon").attr("class", "vessel").attr('points', "0,-10 5,10 -5,10");
+        
+        boatData
+          .attr("style", function (d, i) {
+            return d.id === 'self' ? "fill:black" : "fill:" + vesselColor(d.sog);
+          })
+          
+          .attr('transform', function (d) {
+            var point = map.latLngToLayerPoint(d.position);
+            return 'translate(' + point.x + ',' + point.y + ') rotate(' + d.cog + ')';
+          })
+        ;
+
+        boatData.exit().remove();
+      }
+
+      function reset() {
+        var targetsArray = [];
+        var multiPointForBounds = {
+          "type": "MultiPoint",
+          "coordinates": []
+        };
+
+        var threshold = new Date().getTime() - (2 * 60 * 1000);
+        var bounds = [];
+
+        for (key in targets) {
+          if (targets[key].timestamp > threshold && targets[key].position) {
+            targetsArray.push(targets[key]);
+            bounds.push([targets[key].position.lat, targets[key].position.lng]);
+            multiPointForBounds.coordinates.push([targets[key].position.lng, targets[key].position.lat]);
+          } else {
+            delete targets[key];
+          }
+        };
+
+        targetsArray = targetsArray.sort(function (a, b) {
+          return b.sog - a.sog
+        });
+
+        updateMarkers(multiPointForBounds, targetsArray);
+
+        if(bounds.length > 0) {
+          map.fitBounds(new L.LatLngBounds(bounds), { maxZoom: 13 });
+        }
+      }
+
+      function getName(aisData) {
+        if (aisData.vesselInfo) {
+          if (aisData.vesselInfo.name) {
+            if (aisData.vesselInfo.name.value) {
+              return aisData.vesselInfo.name.value;
+            }
+          }
+        }
+        return '-';
+      }
+
+      // Use Leaflet to implement a D3 geometric transformation.
+      function projectPoint(x, y) {
+        var point = map.latLngToLayerPoint(new L.LatLng(y, x));
+        this.stream.point(point.x, point.y);
+      }
+
+      var targets = {};
+      var selfLocation;
+      var selfSpeed = 0;
+
+      var signalKStream = Primus.connect("http://demo.signalk.org/?stream=subscribe", {
+        reconnect: {
+          maxDelay: 15000,
+          minDelay: 500,
+          retries: Infinity
+        }
       });
 
-      var seamap = L.tileLayer('http://tiles.openseamap.org/seamark/{z}/{x}/{y}.png', {
-        attribution: 'Map data: &copy; <a href="http://www.openseamap.org">OpenSeaMap</a> contributors'
+      var subscribeCommand = {
+        command: 'subscribe',
+        paths: [
+          'navigation.courseOverGroundTrue',
+          'navigation.speedOverGround',
+          'navigation.position',
+          'name'
+        ]
+      };
+
+      signalKStream.write(subscribeCommand);
+      signalKStream.on('reconnect', function (spark) {
+        signalKStream.write(subscribeCommand);
       });
 
-      map.addLayer(basemap).addLayer(seamap);
+      var doDraw = false;
+      var frameLength = 1000 / 2;
+      var lastFrame = 0;
+
+      var render = function () {
+        if (Date.now() - lastFrame > frameLength) {
+          lastFrame = Date.now()
+          if (doDraw) {
+            reset();
+            doDraw = false;
+          }
+        }
+        requestAnimationFrame(render);
+      };
+
+      requestAnimationFrame(render);
+
+      signalKStream.on('data', function (_) {
+        var id = _.context.split('.')[1];
+        var aisData = targets[id];
+
+        if (!aisData) {
+          targets[id] = aisData = {
+            id: id,
+            show: true
+          };
+          $.ajax({
+            url: "http://demo.signalk.org/signalk/api/v1/vessels/" + id,
+            async: true,
+            success: function(vesselInfo) {
+              aisData.vesselInfo = vesselInfo;
+            }
+          });
+        };
+
+        _.updates.forEach(function(update) {
+          update.values.forEach(function (value) {
+            aisData.timestamp = new Date().getTime();
+            
+            if(value.path === 'navigation.position') {
+              targets[id].position = new L.LatLng(value.value.latitude, value.value.longitude);
+              if (id === 'self') {
+                selfLocation = targets[id].position;
+              }
+              doDraw = true;
+            }
+            
+            if(value.path === 'navigation.courseOverGroundTrue') {
+              aisData.cog = value.value;
+              doDraw = true;
+            }
+
+            if(value.path === 'navigation.speedOverGround') {
+              if(value.value === 0 || typeof value.value === 'undefined') {
+                aisData.show = false;
+              }
+
+              aisData.sog = (value.value * 1.94384).toFixed(2);
+              doDraw = true;
+
+              if(id === 'self') {
+                selfSpeed = (value.value * 1.94384).toFixed(2);
+              }
+            }
+
+            if(value.path === 'name') {
+              if(!aisData.vesselInfo || !aisData.vesselInfo.name) {
+                aisData.vesselInfo = {
+                  name: {
+                    value: "-"
+                  }
+                };
+              }
+
+              aisData.vesselInfo.name.value = value.value;
+              doDraw = true;
+            }
+          });
+        });
+      });
