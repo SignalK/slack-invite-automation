@@ -1,10 +1,12 @@
 {
-  "name": "slack-invite-automation",
-  "version": "0.1.0",
+  "name": "signalk-slack-invite",
+  "version": "0.1.1",
   "private": true,
+  
   "scripts": {
     "start": "node ./bin/www"
   },
+
   "dependencies": {
     "body-parser": "^1.14.0",
     "cookie-parser": "^1.4.0",
@@ -14,5 +16,10 @@
     "morgan": "^1.6.0",
     "request": "^2.62.0",
     "serve-favicon": "^2.3.0"
+  },
+
+  "engines": {
+    "node": "v0.12.x",
+    "npm": "v2.11.x"
   }
 }
