@@ -3,26 +3,51 @@ html
   head
     meta(http-equiv="Content-Type", content="text/html; charset=utf-8")
     meta(name="viewport", content="width=device-width, initial-scale=1")
+    
     title Join the #{community} community on Slack!
-    link(href="css/style.css", rel="stylesheet", type="text/css")
-    link(href="http://fonts.googleapis.com/css?family=Lato:300,400,700,900,700italic|Open+Sans:700italic,400,600,300,700,800", rel="stylesheet", type="text/css")
+    
+    link(href="https://fonts.googleapis.com/css?family=Lato:400,400italic,700italic,700,300,300italic")    
+    link(href="css/style.css", rel="stylesheet")
+    link(href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.5/leaflet.css", rel="stylesheet")
+
+    script(src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.5/leaflet.js")
+    script(src="https://cdnjs.cloudflare.com/ajax/libs/leaflet-providers/1.1.5/leaflet-providers.min.js")
   body
-    #wrapper
+    #map
+    #container
       .main
         .header
-          h1
-            strong #{community}
-          h2 Enter you email in below to join #{community} on slack!
+          a(target="_blank", href="http://signalk.org", style="text-align: center; display: block; margin-bottom: 1em;")
+            img(src="http://signalk.org/images/signalk.svg", alt="Signal K")
+          h2 Enter you email below to join the #{community} on Slack!
+
         .content
           .information
             form(method="POST", action="/invite")#join-form.form
               input(type="text", name="email", placeholder="Enter Your Email Address")#slack-email.field
               input(type="submit", value="Join").submit
+    
     script.
       var form = document.getElementById('join-form');
-      var email = document.getElementById('slack-email')
+      var email = document.getElementById('slack-email');
+
       form.addEventListener('submit', function(evt) {
         if (!email.value) {
           evt.preventDefault();
         }
       });
+
+      var map = L.map('map', {
+        center: [50.6435934,0.7999042],
+        zoom: 10
+      });
+
+      var basemap = L.tileLayer('http://{s}.tile.openstreetmap.se/hydda/base/{z}/{x}/{y}.png', {
+        attribution: 'Tiles courtesy of <a href="http://openstreetmap.se/" target="_blank">OpenStreetMap Sweden</a> &mdash; Map data &copy; <a href="http://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+      });
+
+      var seamap = L.tileLayer('http://tiles.openseamap.org/seamark/{z}/{x}/{y}.png', {
+        attribution: 'Map data: &copy; <a href="http://www.openseamap.org">OpenSeaMap</a> contributors'
+      });
+
+      map.addLayer(basemap).addLayer(seamap);
