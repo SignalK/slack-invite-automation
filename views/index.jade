@@ -14,7 +14,7 @@ html
     script(src="https://cdnjs.cloudflare.com/ajax/libs/leaflet-providers/1.1.5/leaflet-providers.min.js")
     script(src="https://cdnjs.cloudflare.com/ajax/libs/d3/3.5.6/d3.min.js")
     script(src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.0.0-alpha1/jquery.min.js")
-    script(src="http://demo.signalk.org/signalk/stream/v1/primus.js")
+    script(src="http://demo.signalk.org/signalk/v1/stream/primus.js")
   body
     #map
     #container
@@ -93,6 +93,10 @@ html
           })
           
           .attr('transform', function (d) {
+            if(d === null || typeof d !== 'object') {
+              return
+            }
+
             var point = map.latLngToLayerPoint(d.position);
             return 'translate(' + point.x + ',' + point.y + ') rotate(' + d.cog + ')';
           })
@@ -194,7 +198,20 @@ html
       requestAnimationFrame(render);
 
       signalKStream.on('data', function (_) {
-        var id = _.context.split('.')[1];
+        if(typeof _.context !== 'string' || (typeof _.context === 'string' && _.context.trim() === '')) {
+          return
+        }
+
+        if(_.context.indexOf('[') !== -1 && _.context.indexOf(']') !== -1) {
+          var id = _.context.split('[')[1].replace(']', '');
+        } else {
+          var id = _.context.split('.')[1];
+        }
+
+        if(typeof id === 'undefined' || id === 'undefined') {
+           retun;
+        }
+
         var aisData = targets[id];
 
         if (!aisData) {
@@ -203,7 +220,7 @@ html
             show: true
           };
           $.ajax({
-            url: "http://demo.signalk.org/signalk/api/v1/vessels/" + id,
+            url: "http://demo.signalk.org/signalk/v1/api/vessels/" + id,
             async: true,
             success: function(vesselInfo) {
               aisData.vesselInfo = vesselInfo;
